@@ -159,7 +159,7 @@ const Cards = ({ handleTotalBet }: Props) => {
 
     try {
       const response = await axios.post(
-        'https://your-backend-server.com/api/bet',
+        'https://www.delightmyanmarthb.xyz/api/bet',
         requestData,
         {
           headers: {
