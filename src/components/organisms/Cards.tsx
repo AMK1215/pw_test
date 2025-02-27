@@ -1,5 +1,6 @@
-import { useState } from "react";
-import useCoinStore from "../../stores/coinStore";
+import { useState } from 'react';
+import { useAuth } from '../../contexts/AuthContext'; // Import useAuth
+import useCoinStore from '../../stores/coinStore';
 import m1 from '../../assets/images/m1.png';
 import m2 from '../../assets/images/m2.png';
 import m3 from '../../assets/images/m3.png';
@@ -24,6 +25,7 @@ import c5 from '../../assets/images/c5.png';
 import c6 from '../../assets/images/c6.png';
 import c7 from '../../assets/images/c7.png';
 import c8 from '../../assets/images/c8.png';
+import axios from 'axios'; // Import axios for API calls
 
 interface Props {
   handleTotalBet: (value: number) => void;
@@ -31,8 +33,10 @@ interface Props {
 
 const Cards = ({ handleTotalBet }: Props) => {
   const [totalBet, setTotalBet] = useState(0);
-  const { selectedCoin, placeCoin, placedCoins ,reset } = useCoinStore();
+  const { selectedCoin, placeCoin, placedCoins, reset } = useCoinStore();
   const [winningImage, setWinningImage] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth(); // Get the authenticated user
 
   const data = [
     { id: 1, img: m1 },
@@ -61,54 +65,147 @@ const Cards = ({ handleTotalBet }: Props) => {
     { id: 16, img: f8 },
   ];
 
-  const handleImageClick = (e:React.MouseEvent<HTMLDivElement, MouseEvent>, id:number) => {
+  // Function to generate a unique ID
+  const generateUniqueId = () => {
+    const timestamp = Date.now().toString(36); // Convert current time to base-36 string
+    const randomString = Math.random().toString(36).substring(2, 8); // Random string
+    return `${timestamp}-${randomString}`; // Combine timestamp and random string
+  };
+
+  const handleImageClick = (
+    e: React.MouseEvent<HTMLDivElement, MouseEvent>,
+    id: number
+  ) => {
+    if (!user) {
+      setError('You must be logged in to place a bet.');
+      return;
+    }
+
     if (selectedCoin) {
-       const imageElement = document.getElementById(`image-${id}`);
+      const imageElement = document.getElementById(`image-${id}`);
       if (imageElement) {
-         const rect = imageElement.getBoundingClientRect();
+        const rect = imageElement.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const clickY = e.clientY - rect.top;
 
-         const clickX = e.clientX - rect.left;  
-        const clickY = e.clientY - rect.top;  
+        placeCoin(id, clickX, clickY);
 
-         placeCoin(id, clickX, clickY);
-
-         const prevBet = totalBet + selectedCoin.value;
+        const prevBet = totalBet + selectedCoin.value;
         setTotalBet(prevBet);
         handleTotalBet(prevBet);
+        setError(null); // Clear any previous error
       }
     }
   };
 
-  // const determineWinner = () => {
-  //    const randomIndex = Math.floor(Math.random() * data.length);
-  //   setWinningImage(data[randomIndex].id);
-  // };
+  const calculateWinLoseAmount = (placedCoins, winningImageId) => {
+    let totalWinLoseAmount = 0;
 
-  // const resetGame = () => {
-  //   reset();
-  //   setTotalBet(0);
-  //   handleTotalBet(0);
-  //   setWinningImage(null);
-  // };
+    // Define the payout factor (e.g., 2x for winning bets)
+    const payoutFactor = 2;
+
+    placedCoins.forEach((coin) => {
+      if (coin.id === winningImageId) {
+        // Player wins: add the bet amount multiplied by the payout factor
+        totalWinLoseAmount += coin.coin.value * payoutFactor;
+      } else {
+        // Player loses: subtract the bet amount
+        totalWinLoseAmount -= coin.coin.value;
+      }
+    });
+
+    return totalWinLoseAmount;
+  };
+
+  const determineWinner = async () => {
+    if (!user) {
+      setError('You must be logged in to determine the winner.');
+      return;
+    }
+
+    if (placedCoins.length === 0) {
+      setError('Please place at least one bet before determining the winner.');
+      return;
+    }
+
+    const randomIndex = Math.floor(Math.random() * data.length);
+    setWinningImage(data[randomIndex].id);
+
+    // Generate unique roomId and matchId
+    const roomId = generateUniqueId();
+    const matchId = generateUniqueId();
+
+    // Prepare data to send to the backend
+    const requestData = [
+      {
+        roomId: roomId, // Use the generated roomId
+        matchId: matchId, // Use the generated matchId
+        winNumber: data[randomIndex].id, // Winning image ID
+        players: [
+          {
+            playerId: user.user_name, // Use the authenticated user's username
+            betInfos: placedCoins.map((coin) => ({
+              betNumber: coin.id,
+              betAmount: coin.coin.value,
+            })),
+            winLoseAmount: calculateWinLoseAmount(
+              placedCoins,
+              data[randomIndex].id
+            ), // Calculate win/lose amount
+          },
+        ],
+      },
+    ];
+
+    try {
+      const response = await axios.post(
+        'https://your-backend-server.com/api/bet',
+        requestData,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${localStorage.getItem('token')}`, // Include the auth token
+            'X-Transaction-Key': 'yYpfrVcWmkwxWx7um0TErYHj4YcHOOWr', // Include the transaction key
+          },
+        }
+      );
+
+      console.log('Response from backend:', response.data);
+
+      if (response.data.success) {
+        // Handle successful response
+        alert('Bet placed successfully!');
+      } else {
+        // Handle error response
+        setError('Failed to place bet. Please try again.');
+      }
+    } catch (err) {
+      console.error('Error sending data:', err);
+      setError('An error occurred while placing the bet.');
+    }
+
+    // Reset the game after determining the winner
+    reset();
+    setTotalBet(0);
+    handleTotalBet(0);
+  };
 
   return (
-    <div className="p-4">
-      <div className="grid grid-cols-6 gap-4">
+    <div className='p-4'>
+      <div className='grid grid-cols-6 gap-4'>
         {data.map((item) => (
           <div
             key={item.id}
-            className="relative cursor-pointer"
-            onClick={(e) => handleImageClick(e, item.id)} // Pass the event and id
+            className='relative cursor-pointer'
+            onClick={(e) => handleImageClick(e, item.id)}
           >
             <img
               id={`image-${item.id}`}
               src={item.img}
-              alt="image"
-              className="w-24 h-24 object-cover rounded-lg"
+              alt='image'
+              className='w-24 h-24 object-cover rounded-lg'
             />
-            {/* Render coins on top of the image */}
-            <div className="absolute top-0 left-0 w-full h-full">
-              {/* Render placed coins */}
+            <div className='absolute top-0 left-0 w-full h-full'>
               {placedCoins
                 .filter((placedCoin) => placedCoin.id === item.id)
                 .map((coin, index) => (
@@ -117,10 +214,10 @@ const Cards = ({ handleTotalBet }: Props) => {
                     src={coin.coin.img}
                     width={20}
                     height={20}
-                    className="absolute rounded-full"
+                    className='absolute rounded-full'
                     style={{
-                      left: `calc(${coin.x}px - 10px)`,  
-                      top: `calc(${coin.y}px - 10px)`,  
+                      left: `calc(${coin.x}px - 10px)`,
+                      top: `calc(${coin.y}px - 10px)`,
                       zIndex: placedCoins.length + index,
                     }}
                   />
@@ -130,29 +227,36 @@ const Cards = ({ handleTotalBet }: Props) => {
         ))}
       </div>
 
-      {/* <div className="mt-2">
+      <div className='mt-4'>
         <button
-          className="bg-blue-500 text-white px-4 py-2 rounded mr-2"
+          className='bg-blue-500 text-white px-4 py-2 rounded mr-2'
           onClick={determineWinner}
-          disabled={placedCoins.length === 0}
+          disabled={placedCoins.length === 0 || !user}
         >
           Determine Winner
         </button>
         <button
-          className="bg-red-500 text-white px-4 py-2 rounded"
-          onClick={resetGame}
+          className='bg-red-500 text-white px-4 py-2 rounded'
+          onClick={() => {
+            reset();
+            setTotalBet(0);
+            handleTotalBet(0);
+            setError(null);
+          }}
         >
           Reset Game
         </button>
-      </div> */}
+      </div>
+
+      {error && <div className='mt-4 text-red-500'>{error}</div>}
 
       {winningImage && (
-        <div className="mt-4">
-          <h2 className="text-xl font-bold">Winning Image:</h2>
+        <div className='mt-4'>
+          <h2 className='text-xl font-bold'>Winning Image:</h2>
           <img
             src={data.find((img) => img.id === winningImage)?.img}
-            alt="winning image"
-            className="w-24 h-24 object-cover rounded-lg"
+            alt='winning image'
+            className='w-24 h-24 object-cover rounded-lg'
           />
         </div>
       )}
@@ -161,42 +265,3 @@ const Cards = ({ handleTotalBet }: Props) => {
 };
 
 export default Cards;
-
-
-// return (
-//   <div className='w-full h-full pt-5 flex'>
-//     <div className='w-[5%]' />
-//     <div className='w-[95%] h-max'>
-//       <div className="grid grid-cols-6 grid-rows-4 relative">
-//         {/* Green Square at the Top Start of Each Column */}
-//         <div className="absolute -top-10 left-[5.5%] w-[30px] h-[40px] bg-green-500 rounded-lg"></div>
-//         <div className="absolute -top-10 left-[calc(22.66%)] w-[30px] h-[40px] bg-green-500 rounded-lg"></div>
-//         <div className="absolute -top-10 left-[calc(39.33%)] w-[30px] h-[40px] bg-green-500 rounded-lg"></div>
-//         <div className="absolute -top-10 left-[calc(56%)] w-[30px] h-[40px] bg-green-500 rounded-lg"></div>
-//         <div className="absolute -top-10 left-[calc(72.66%)] w-[30px] h-[40px] bg-green-500 rounded-lg"></div>
-//         <div className="absolute -top-10 left-[calc(89.33%)] w-[30px] h-[40px] bg-green-500 rounded-lg"></div>
-
-//         {data.map((item, index) => (
-//           <div key={index} className="pt-3 pl-3 rounded-lg relative flex items-center justify-center">
-//             {/* Image */}
-//             <img src={item.img} alt="image" className="z-2 w-24 h-24 object-cover rounded-lg border-3 border-red-500" />
-
-//             {/* Horizontal Center Line */}
-//             <div className="absolute inset-x-0 top-1/2 transform -translate-y-1/2 h-[8px] bg-red-500"></div>
-
-//             {/* Vertical Center Line */}
-//             <div className="absolute inset-y-0 left-1/2 transform -translate-x-1/2 w-[8px] bg-green-500"></div>
-
-//             {/* Red Square on the Left Start of Each Row */}
-//             {index % 6 === 0 && (
-//               <div className="absolute top-1/2 -left-10 transform -translate-y-1/2 w-[40px] h-[30px] bg-red-500 rounded-lg"></div>
-//             )}
-//           </div>
-//         ))}
-//       </div>
-//     </div>
-//   </div>
-// )
-
-
- 

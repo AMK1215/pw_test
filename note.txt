@@ -1,0 +1,359 @@
+i will provide backend api logic, 'Route::post('bet', [PoneWineBetController::class, 'index'])->middleware('transaction');
+', <?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
+
+class TransactionMiddleware
+{
+    public function handle(Request $request, Closure $next): Response
+    {
+        $response = $next($request);
+
+        $headerKey = $request->header('X-Transaction-Key');
+
+        if ($headerKey !== 'yYpfrVcWmkwxWx7um0TErYHj4YcHOOWr') {
+            return response()->json(['error' => 'Unauthorized. Invalid header key.'], 401);
+        }
+
+        return $response;
+    }
+}
+,  ', <?php
+
+namespace App\Http\Controllers\Api\V1;
+
+use App\Enums\TransactionName;
+use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\PoneWineBetRequest;
+use App\Models\PoneWineBet;
+use App\Models\PoneWineBetInfo;
+use App\Models\PoneWinePlayerBet;
+use App\Models\User;
+use App\Services\WalletService;
+use App\Traits\HttpResponses;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
+
+class PoneWineBetController extends Controller
+{
+    use HttpResponses;
+
+    public function index(PoneWineBetRequest $request): JsonResponse
+    {
+        $validatedData = $request->validated();
+        
+        try {
+            DB::beginTransaction();
+            $results = [];
+            
+            foreach ($validatedData as $data) {
+                $bet = $this->createBet($data);
+                $results = array_merge($results, $this->processPlayers($data, $bet));
+            }
+            
+            DB::commit();
+            return $this->success($results, 'Transaction Successful');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return $this->error('Transaction failed', $e->getMessage(), 500);
+        }
+    }
+
+    private function processPlayers(array $data, $bet): array
+    {
+        $results = [];
+        
+        foreach ($data['players'] as $playerData) {
+            $player = $this->getUserByUsername($playerData['playerId']);
+            if (!$player) continue;
+
+            $this->handlePlayerTransaction($data, $playerData, $player, $bet);
+            $results[] = [
+                'playerId' => $player->user_name,
+                'balance' => $player->balanceFloat,
+            ];
+        }
+        
+        return $results;
+    }
+
+    private function getUserByUsername(string $username): ?User
+    {
+        return User::where('user_name', $username)->first();
+    }
+
+    private function handlePlayerTransaction(array $data, array $playerData, User $player, $bet): void
+    {
+        $betPlayer = $this->createBetPlayer($bet, $player, $playerData['winLoseAmount']);
+        $this->createBetInfos($betPlayer, $playerData['betInfos']);
+        $this->updatePlayerBalance($player, $playerData['winLoseAmount']);
+    }
+
+    private function createBet(array $data): PoneWineBet
+    {
+        return PoneWineBet::create([
+            'room_id' => $data['roomId'],
+            'match_id' => $data['matchId'],
+            'win_number' => $data['winNumber'],
+        ]);
+    }
+
+    private function createBetPlayer(PoneWineBet $bet, User $player, float $winLoseAmount): PoneWinePlayerBet
+    {
+        return PoneWinePlayerBet::create([
+            'pone_wine_bet_id' => $bet->id,
+            'user_id' => $player->id,
+            'user_name' => $player->user_name,
+            'win_lose_amt' => $winLoseAmount,
+        ]);
+    }
+
+    private function createBetInfos(PoneWinePlayerBet $betPlayer, array $betInfos): void
+    {
+        foreach ($betInfos as $info) {
+            PoneWineBetInfo::create([
+                'bet_no' => $info['betNumber'],
+                'bet_amount' => $info['betAmount'],
+                'pone_wine_player_bet_id' => $betPlayer->id,
+            ]);
+        }
+    }
+
+    private function updatePlayerBalance(User $player, float $amountChanged): void
+    {
+        $walletService = new WalletService();
+        
+        if ($amountChanged > 0) {
+            $walletService->deposit($player, $amountChanged, TransactionName::CapitalDeposit);
+        } else {
+            $walletService->withdraw($player, abs($amountChanged), TransactionName::CapitalWithdraw);
+        }
+    }
+}
+, <?php
+
+namespace App\Http\Requests\Api;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class PoneWineBetRequest extends FormRequest
+{
+    /**
+     * Determine if the user is authorized to make this request.
+     */
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * Get the validation rules that apply to the request.
+     *
+     * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
+     */
+    public function rules(): array
+    {
+        return [
+           '*.roomId' => 'required',
+            '*.matchId' => 'required',
+            '*.winNumber' => 'required',
+            '*.players' => 'required|array',
+            '*.players.*.playerId' => 'required',
+            '*.players.*.betInfos' => 'required|array',
+            '*.players.*.winLoseAmount' => 'required',
+            '*.players.*.betInfos.*.betNumber' => 'required',
+            '*.players.*.betInfos.*.betAmount' => 'required',
+        ];
+    }
+}, import { useState } from "react";
+import useCoinStore from "../../stores/coinStore";
+import { useAuth } from "../../contexts/AuthContext"; // Import useAuth
+import m1 from '../../assets/images/m1.png';
+import m2 from '../../assets/images/m2.png';
+// Import other images...
+
+interface Props {
+  handleTotalBet: (value: number) => void;
+}
+
+const Cards = ({ handleTotalBet }: Props) => {
+  const [totalBet, setTotalBet] = useState(0);
+  const { selectedCoin, placeCoin, placedCoins, reset } = useCoinStore();
+  const [winningImage, setWinningImage] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const { user } = useAuth(); // Get the authenticated user
+
+  const data = [
+    { id: 1, img: m1 },
+    { id: 2, img: m2 },
+    // Add other images...
+  ];
+
+  // Function to generate a unique ID
+  const generateUniqueId = () => {
+    const timestamp = Date.now().toString(36); // Convert current time to base-36 string
+    const randomString = Math.random().toString(36).substring(2, 8); // Random string
+    return `${timestamp}-${randomString}`; // Combine timestamp and random string
+  };
+
+  const handleImageClick = (e: React.MouseEvent<HTMLDivElement, MouseEvent>, id: number) => {
+    if (!user) {
+      setError("You must be logged in to place a bet.");
+      return;
+    }
+
+    if (selectedCoin) {
+      const imageElement = document.getElementById(`image-${id}`);
+      if (imageElement) {
+        const rect = imageElement.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const clickY = e.clientY - rect.top;
+
+        placeCoin(id, clickX, clickY);
+
+        const prevBet = totalBet + selectedCoin.value;
+        setTotalBet(prevBet);
+        handleTotalBet(prevBet);
+        setError(null); // Clear any previous error
+      }
+    }
+  };
+
+  const determineWinner = async () => {
+    if (!user) {
+      setError("You must be logged in to determine the winner.");
+      return;
+    }
+
+    if (placedCoins.length === 0) {
+      setError("Please place at least one bet before determining the winner.");
+      return;
+    }
+
+    const randomIndex = Math.floor(Math.random() * data.length);
+    setWinningImage(data[randomIndex].id);
+
+    // Generate unique roomId and matchId
+    const roomId = generateUniqueId();
+    const matchId = generateUniqueId();
+
+    // Prepare data to send to the backend
+    const requestData = {
+      roomId: roomId, // Use the generated roomId
+      matchId: matchId, // Use the generated matchId
+      winNumber: data[randomIndex].id, // Winning image ID
+      players: [
+        {
+          playerId: user.user_name, // Use the authenticated user's username
+          betInfos: placedCoins.map((coin) => ({
+            betNumber: coin.id,
+            betAmount: coin.coin.value,
+          })),
+          winLoseAmount: calculateWinLoseAmount(placedCoins, data[randomIndex].id), // Implement this function
+        },
+      ],
+    };
+
+    try {
+      const response = await axios.post('https://your-backend-server.com/api/betting', requestData, {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem("token")}`, // Include the auth token
+        },
+      });
+      console.log('Response from backend:', response.data);
+    } catch (err) {
+      console.error('Error sending data:', err);
+    }
+
+    // Reset the game after determining the winner
+    reset();
+    setTotalBet(0);
+    handleTotalBet(0);
+  };
+
+  const calculateWinLoseAmount = (placedCoins, winningImageId) => {
+    // Implement logic to calculate win/lose amount based on the winning image
+    // For example, sum the bet amounts for the winning image and subtract losses
+    return 0; // Replace with actual calculation
+  };
+
+  return (
+    <div className="p-4">
+      <div className="grid grid-cols-6 gap-4">
+        {data.map((item) => (
+          <div
+            key={item.id}
+            className="relative cursor-pointer"
+            onClick={(e) => handleImageClick(e, item.id)}
+          >
+            <img
+              id={`image-${item.id}`}
+              src={item.img}
+              alt="image"
+              className="w-24 h-24 object-cover rounded-lg"
+            />
+            <div className="absolute top-0 left-0 w-full h-full">
+              {placedCoins
+                .filter((placedCoin) => placedCoin.id === item.id)
+                .map((coin, index) => (
+                  <img
+                    key={index}
+                    src={coin.coin.img}
+                    width={20}
+                    height={20}
+                    className="absolute rounded-full"
+                    style={{
+                      left: `calc(${coin.x}px - 10px)`,
+                      top: `calc(${coin.y}px - 10px)`,
+                      zIndex: placedCoins.length + index,
+                    }}
+                  />
+                ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4">
+        <button
+          className="bg-blue-500 text-white px-4 py-2 rounded mr-2"
+          onClick={determineWinner}
+          disabled={placedCoins.length === 0 || !user}
+        >
+          Determine Winner
+        </button>
+        <button
+          className="bg-red-500 text-white px-4 py-2 rounded"
+          onClick={() => {
+            reset();
+            setTotalBet(0);
+            handleTotalBet(0);
+            setError(null);
+          }}
+        >
+          Reset Game
+        </button>
+      </div>
+
+      {error && <div className="mt-4 text-red-500">{error}</div>}
+
+      {winningImage && (
+        <div className="mt-4">
+          <h2 className="text-xl font-bold">Winning Image:</h2>
+          <img
+            src={data.find((img) => img.id === winningImage)?.img}
+            alt="winning image"
+            className="w-24 h-24 object-cover rounded-lg"
+          />
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default Cards;
