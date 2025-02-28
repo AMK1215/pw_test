@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import React, {
   createContext,
@@ -6,22 +6,22 @@ import React, {
   useState,
   ReactNode,
   useEffect,
- } from "react";
-import { getMe } from "../services/userService";
-import { useNavigate } from "react-router-dom";
+} from 'react';
+import { getMe } from '../services/userService';
+import { useNavigate } from 'react-router-dom';
 
 interface User {
-    id:number;
-    name: string;
-    user_name: string;
-    phone: string;
-     balance: string;
- }
+  id: number;
+  name: string;
+  user_name: string;
+  phone: string;
+  balance: string;
+}
 
 interface AuthContextProps {
   user: User | null;
-  setUser:(data:User)=>void;
-  logout:()=>void;
+  setUser: (data: User) => void;
+  logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextProps | undefined>(undefined);
@@ -31,33 +31,50 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
 }) => {
   const [user, setUser] = useState<User | null>(null);
 
-  useEffect(()=>{
+  // useEffect(()=>{
+  //   const fetchUser = async () => {
+  //     try {
+  //       const savedUser = await getMe();
+  //       if (savedUser) {
+  //         setUser(savedUser);
+  //         console.log('savedUser',savedUser)
+  //       }
+  //     } catch (error) {
+  //       console.error("Error fetching user:", error);
+  //     }
+  //   };
+
+  //   fetchUser();
+  // },[]);
+
+  useEffect(() => {
     const fetchUser = async () => {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
       try {
         const savedUser = await getMe();
         if (savedUser) {
           setUser(savedUser);
-          console.log('savedUser',savedUser)
         }
       } catch (error) {
-        console.error("Error fetching user:", error);
-      } 
+        console.error('Error fetching user:', error);
+      }
     };
 
     fetchUser();
-  },[]);
+  }, []);
 
   const navigate = useNavigate();
 
   const logout = () => {
     setUser(null);
-    localStorage.removeItem("token");
-    navigate("/login");
+    localStorage.removeItem('token');
+    navigate('/login');
   };
 
-  
   return (
-    <AuthContext.Provider value={{ user, setUser ,logout}}>
+    <AuthContext.Provider value={{ user, setUser, logout }}>
       {children}
     </AuthContext.Provider>
   );
@@ -66,7 +83,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
 export const useAuth = (): AuthContextProps => {
   const context = useContext(AuthContext);
   if (!context) {
-    throw new Error("useAuth must be used within an AuthProvider");
+    throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
 };
